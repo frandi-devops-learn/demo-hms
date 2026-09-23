@@ -83,6 +83,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Generate short commit tag
+        id: image-tag
+        shell: bash
+        run: echo "value=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push image
         uses: docker/build-push-action@v7
         with:
@@ -90,6 +95,6 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: docker.io/${{ vars.DOCKERHUB_NAMESPACE }}/hotel-management-${{ matrix.service }}:${{ github.sha }}
+          tags: docker.io/${{ vars.DOCKERHUB_NAMESPACE }}/hotel-management-${{ matrix.service }}:${{ steps.image-tag.outputs.value }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}

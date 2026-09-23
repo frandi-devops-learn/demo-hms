@@ -322,9 +322,10 @@ Logging controls are documented in `.env.example`: `LOG_LEVEL`, `SLOW_REQUEST_MS
 ## Container image CI
 
 `.github/workflows/docker-images.yml` builds and pushes all nine application images to Docker Hub
-on every Git push. Images are tagged only with the full Git commit SHA; the workflow never creates
-or updates a `latest` tag. Each tag is a multi-platform manifest containing `linux/amd64` and
-`linux/arm64`, so the same image reference works on x86_64 and 64-bit ARM K3s nodes.
+on every Git push. Images are tagged only with the first 12 characters of the Git commit SHA; the
+workflow never creates or updates a `latest` or release-version tag. Each tag is a multi-platform
+manifest containing `linux/amd64` and `linux/arm64`, so the same image reference works on x86_64
+and 64-bit ARM K3s nodes.
 
 Configure the following in the GitHub repository under **Settings > Secrets and variables >
 Actions**:
@@ -337,9 +338,9 @@ Create public Docker Hub repositories named `hotel-management-<service>` for eac
 the workflow account permission to create them. Published image references use this format:
 
 ```text
-docker.io/<namespace>/hotel-management-api-gateway:<full-commit-sha>
-docker.io/<namespace>/hotel-management-auth-service:<full-commit-sha>
-docker.io/<namespace>/hotel-management-frontend:<full-commit-sha>
+docker.io/<namespace>/hotel-management-api-gateway:<12-character-commit-sha>
+docker.io/<namespace>/hotel-management-auth-service:<12-character-commit-sha>
+docker.io/<namespace>/hotel-management-frontend:<12-character-commit-sha>
 ```
 
 ## Production hardening (next steps)
