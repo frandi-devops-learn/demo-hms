@@ -1,0 +1,349 @@
+name: hotel-management
+
+x-observability-env: &observability-env
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  SLOW_REQUEST_MS: ${SLOW_REQUEST_MS:-1000}
+  LOG_HEALTH_REQUESTS: ${LOG_HEALTH_REQUESTS:-false}
+  LOG_CLIENT_IP: ${LOG_CLIENT_IP:-false}
+  SERVICE_VERSION: ${SERVICE_VERSION:-development}
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: ${LOG_MAX_FILES:-5}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    ports:
+      - ${POSTGRES_BIND_ADDRESS:?Set POSTGRES_BIND_ADDRESS in .env}:${POSTGRES_HOST_PORT:?Set POSTGRES_HOST_PORT in .env}:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes"]
+    ports:
+      - ${REDIS_BIND_ADDRESS:?Set REDIS_BIND_ADDRESS in .env}:${REDIS_HOST_PORT:?Set REDIS_HOST_PORT in .env}:6379
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    ports:
+      - ${RABBITMQ_BIND_ADDRESS:?Set RABBITMQ_BIND_ADDRESS in .env}:${RABBITMQ_HOST_PORT:?Set RABBITMQ_HOST_PORT in .env}:5672
+      - ${RABBITMQ_BIND_ADDRESS:?Set RABBITMQ_BIND_ADDRESS in .env}:${RABBITMQ_MANAGEMENT_HOST_PORT:?Set RABBITMQ_MANAGEMENT_HOST_PORT in .env}:15672
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    logging: *default-logging
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:?Set ACCESS_TOKEN_TTL in .env}
+      ACCESS_TOKEN_EXPIRES_IN: ${ACCESS_TOKEN_EXPIRES_IN:?Set ACCESS_TOKEN_EXPIRES_IN in .env}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:?Set REFRESH_TOKEN_DAYS in .env}
+      RESET_TOKEN_MINUTES: ${RESET_TOKEN_MINUTES:?Set RESET_TOKEN_MINUTES in .env}
+      PASSWORD_RESET_EXPOSE_TOKEN: ${PASSWORD_RESET_EXPOSE_TOKEN:?Set PASSWORD_RESET_EXPOSE_TOKEN in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL in .env}
+      PORT: ${AUTH_SERVICE_PORT:?Set AUTH_SERVICE_PORT in .env}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:?Set USER_SERVICE_URL in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+      users-service: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    expose:
+      - ${AUTH_SERVICE_PORT:?Set AUTH_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${AUTH_SERVICE_PORT:?Set AUTH_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  users-service:
+    build:
+      context: .
+      dockerfile: services/users-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      PORT: ${USER_SERVICE_PORT:?Set USER_SERVICE_PORT in .env}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?Set AUTH_SERVICE_URL in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+    expose:
+      - ${USER_SERVICE_PORT:?Set USER_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${USER_SERVICE_PORT:?Set USER_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  rooms-service:
+    build:
+      context: .
+      dockerfile: services/rooms-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL in .env}
+      PORT: ${ROOM_SERVICE_PORT:?Set ROOM_SERVICE_PORT in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    expose:
+      - ${ROOM_SERVICE_PORT:?Set ROOM_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${ROOM_SERVICE_PORT:?Set ROOM_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  bookings-service:
+    build:
+      context: .
+      dockerfile: services/bookings-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL in .env}
+      PORT: ${BOOKING_SERVICE_PORT:?Set BOOKING_SERVICE_PORT in .env}
+      ROOM_SERVICE_URL: ${ROOM_SERVICE_URL:?Set ROOM_SERVICE_URL in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    expose:
+      - ${BOOKING_SERVICE_PORT:?Set BOOKING_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${BOOKING_SERVICE_PORT:?Set BOOKING_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  notifications-service:
+    build:
+      context: .
+      dockerfile: services/notifications-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL in .env}
+      PORT: ${NOTIFICATION_SERVICE_PORT:?Set NOTIFICATION_SERVICE_PORT in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    expose:
+      - ${NOTIFICATION_SERVICE_PORT:?Set NOTIFICATION_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${NOTIFICATION_SERVICE_PORT:?Set NOTIFICATION_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL in .env}
+      PORT: ${PAYMENT_SERVICE_PORT:?Set PAYMENT_SERVICE_PORT in .env}
+      BOOKING_SERVICE_URL: ${BOOKING_SERVICE_URL:?Set BOOKING_SERVICE_URL in .env}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?Set PAYMENT_PROVIDER in .env}
+      PAYMENT_CURRENCY: ${PAYMENT_CURRENCY:?Set PAYMENT_CURRENCY in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+      bookings-service: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    expose:
+      - ${PAYMENT_SERVICE_PORT:?Set PAYMENT_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${PAYMENT_SERVICE_PORT:?Set PAYMENT_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  operations-service:
+    build:
+      context: .
+      dockerfile: services/operations-service/Dockerfile
+    environment:
+      <<: *observability-env
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL in .env}
+      PORT: ${OPERATIONS_SERVICE_PORT:?Set OPERATIONS_SERVICE_PORT in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    expose:
+      - ${OPERATIONS_SERVICE_PORT:?Set OPERATIONS_SERVICE_PORT in .env}
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${OPERATIONS_SERVICE_PORT:?Set OPERATIONS_SERVICE_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    environment:
+      <<: *observability-env
+      PORT: ${API_GATEWAY_PORT:?Set API_GATEWAY_PORT in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INTERNAL_KEY: ${INTERNAL_KEY:?Set INTERNAL_KEY in .env}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?Set AUTH_SERVICE_URL in .env}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:?Set USER_SERVICE_URL in .env}
+      ROOM_SERVICE_URL: ${ROOM_SERVICE_URL:?Set ROOM_SERVICE_URL in .env}
+      BOOKING_SERVICE_URL: ${BOOKING_SERVICE_URL:?Set BOOKING_SERVICE_URL in .env}
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:?Set NOTIFICATION_SERVICE_URL in .env}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:?Set PAYMENT_SERVICE_URL in .env}
+      OPERATIONS_SERVICE_URL: ${OPERATIONS_SERVICE_URL:?Set OPERATIONS_SERVICE_URL in .env}
+    ports:
+      - ${API_GATEWAY_BIND_ADDRESS:?Set API_GATEWAY_BIND_ADDRESS in .env}:${API_GATEWAY_PORT:?Set API_GATEWAY_PORT in .env}:${API_GATEWAY_PORT:?Set API_GATEWAY_PORT in .env}
+    depends_on:
+      auth-service: { condition: service_healthy }
+      users-service: { condition: service_healthy }
+      rooms-service: { condition: service_healthy }
+      bookings-service: { condition: service_healthy }
+      notifications-service: { condition: service_healthy }
+      payment-service: { condition: service_healthy }
+      operations-service: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://localhost:${API_GATEWAY_PORT:?Set API_GATEWAY_PORT in .env}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: .
+      dockerfile: services/frontend/Dockerfile
+    ports:
+      - ${FRONTEND_BIND_ADDRESS:?Set FRONTEND_BIND_ADDRESS in .env}:${FRONTEND_PORT:?Set FRONTEND_PORT in .env}:${FRONTEND_PORT:?Set FRONTEND_PORT in .env}
+    environment:
+      <<: *observability-env
+      PORT: ${FRONTEND_PORT:?Set FRONTEND_PORT in .env}
+      API_GATEWAY_URL: ${API_GATEWAY_URL:?Set API_GATEWAY_URL in .env}
+    depends_on:
+      api-gateway: { condition: service_healthy }
+    logging: *default-logging
+
+  loki:
+    image: ${LOKI_IMAGE:-grafana/loki:3.5.3}
+    command: [-config.file=/etc/loki/config.yaml, -config.expand-env=true]
+    environment:
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-168h}
+    volumes:
+      - ./observability/loki/config.yaml:/etc/loki/config.yaml:ro
+      - lokidata:/loki
+    expose:
+      - 3100
+    restart: unless-stopped
+    logging: *default-logging
+
+  alloy:
+    image: ${ALLOY_IMAGE:-grafana/alloy:v1.10.2}
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    user: "0:0"
+    environment:
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:-development}
+      LOKI_URL: http://loki:3100/loki/api/v1/push
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloydata:/var/lib/alloy/data
+    depends_on:
+      - loki
+    restart: unless-stopped
+    logging: *default-logging
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:12.1.1}
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+    ports:
+      - ${GRAFANA_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_HOST_PORT:-3200}:3000
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitdata:
+  lokidata:
+  alloydata:
+  grafanadata:

@@ -1,0 +1,84 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+discovery.docker "hotel_containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "hotel_containers" {
+  targets = discovery.docker.hotel_containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
+loki.source.docker "hotel_containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.hotel_containers.output
+  forward_to = [loki.process.hotel_logs.receiver]
+}
+
+loki.process "hotel_logs" {
+  stage.json {
+    expressions = {
+      duration_ms = "durationMs",
+      level       = "level",
+      log_type    = "logType",
+      message     = "msg",
+      method      = "method",
+      path        = "path",
+      request_id  = "requestId",
+      service     = "service",
+      status_code = "statusCode",
+      user_id     = "userId",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level    = "",
+      log_type = "",
+      service  = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      environment = sys.env("DEPLOYMENT_ENV"),
+      platform    = "docker-compose",
+    }
+  }
+
+  forward_to = [loki.write.hotel.receiver]
+}
+
+loki.write "hotel" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+  }
+
+  external_labels = {
+    application = "hotel-management",
+  }
+}

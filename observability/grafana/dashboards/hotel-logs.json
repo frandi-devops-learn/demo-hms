@@ -1,0 +1,85 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(count_over_time({application=\"hotel-management\"}[$__range]))", "queryType": "instant", "refId": "A" }],
+      "title": "Logs in selected range",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "avg_over_time({application=\"hotel-management\",log_type=\"access\"} | json | unwrap duration_ms [$__range])", "queryType": "instant", "refId": "A" }],
+      "title": "Average request duration",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(count_over_time({application=\"hotel-management\",level=~\"warn|error\"}[$__range]))", "queryType": "instant", "refId": "A" }],
+      "title": "Warnings and errors",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(count_over_time({application=\"hotel-management\",log_type=\"access\"} | json | status_code >= 500 [$__range]))", "queryType": "instant", "refId": "A" }],
+      "title": "HTTP 5xx responses",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (compose_service) (count_over_time({application=\"hotel-management\"}[$__auto]))", "legendFormat": "{{compose_service}}", "queryType": "range", "refId": "A" }],
+      "title": "Log volume by service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (service) (count_over_time({application=\"hotel-management\",level=~\"warn|error\"}[$__auto]))", "legendFormat": "{{service}}", "queryType": "range", "refId": "A" }],
+      "title": "Warnings and errors by service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "hotel-loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 13 },
+      "id": 7,
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [{ "expr": "{application=\"hotel-management\"}", "queryType": "range", "refId": "A" }],
+      "title": "Hotel service logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": ["hotel-management", "loki"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "Hotel Management Logs",
+  "uid": "hotel-management-logs",
+  "version": 1
+}

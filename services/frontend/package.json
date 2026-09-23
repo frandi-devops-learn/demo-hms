@@ -1,0 +1,33 @@
+{
+  "name": "hotel-portal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server/main.ts",
+    "build:client": "vite build --outDir dist/client",
+    "build:server": "vite build --ssr src/entry-server.jsx --outDir dist/server",
+    "build:nest": "esbuild server/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/nest/main.cjs",
+    "build": "npm run build:client && npm run build:server && npm run build:nest",
+    "start": "node dist/nest/main.cjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.0.3",
+    "@nestjs/core": "^12.0.3",
+    "@nestjs/platform-express": "^12.0.3",
+    "compression": "^1.7.5",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^3.0.3",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.2",
+    "vite": "^6.0.7"
+  }
+}
